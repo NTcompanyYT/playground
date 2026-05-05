@@ -12,9 +12,8 @@ This monorepo collects my quick AI-powered builds, each in its own folder with a
 ## 🗂️ What's inside
 
 <!-- PROJECTS_TABLE -->
-| Project | Description |
-|--------|-------------|
-| *(this will be replaced automatically)* |
+| No projects added yet. | Add a folder with a README.md! |
+
 <!-- /PROJECTS_TABLE -->
 
 > Each folder contains its own README with setup instructions, if you’d like to run something locally.
