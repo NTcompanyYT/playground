@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terminal // access_granted</title>
+    <style>
+        :root {
+            --bg: #0a0a0a;
+            --text: #33ff33;
+            --text-dim: #1a8c1a;
+            --glow: #33ff33;
+            --cursor: #33ff33;
+            --scanline-opacity: 0.03;
+            --flicker-speed: 0.08s;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        @font-face {
+            font-family: 'Terminal';
+            src: local('Courier New'), local('monospace');
+        }
+
+        body {
+            background: #050505;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Courier New', 'Fira Code', 'Consolas', monospace;
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* CRT Container */
+        .crt-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            max-width: 1100px;
+            max-height: 700px;
+            background: #0c0c0c;
+            border-radius: 18px;
+            overflow: hidden;
+            box-shadow:
+                0 0 60px rgba(0, 0, 0, 0.9),
+                0 0 200px rgba(0, 0, 0, 0.7),
+                inset 0 0 80px rgba(0, 0, 0, 0.6),
+                0 0 15px rgba(51, 255, 51, 0.08),
+                0 0 40px rgba(51, 255, 51, 0.04);
+            border: 3px solid #1a1a1a;
+            transition: all 0.3s ease;
+        }
+
+        /* Screen curvature overlay */
+        .crt-curvature {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 10;
+            background: radial-gradient(ellipse at center,
+                    transparent 55%,
+                    rgba(0, 0, 0, 0.35) 70%,
+                    rgba(0, 0, 0, 0.7) 90%,
+                    rgba(0, 0, 0, 0.9) 100%);
+            border-radius: 18px;
+        }
+
+        /* Scanlines */
+        .scanlines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 9;
+            background: repeating-linear-gradient(0deg,
+                    transparent,
+                    transparent 2px,
+                    rgba(0, 0, 0, var(--scanline-opacity)) 2px,
+                    rgba(0, 0, 0, var(--scanline-opacity)) 4px);
+            border-radius: 18px;
+            animation: scanline-move 8s linear infinite;
+        }
+
+        @keyframes scanline-move {
+            0% {
+                background-position: 0 0;
+            }
+            100% {
+                background-position: 0 100px;
+            }
+        }
+
+        /* Occasional horizontal flicker line */
+        .flicker-line {
+            position: absolute;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: rgba(51, 255, 51, 0.04);
+            pointer-events: none;
+            z-index: 11;
+            border-radius: 18px;
+            animation: flicker-line-move 3s ease-in-out infinite;
+        }
+
+        @keyframes flicker-line-move {
+            0%,
+            100% {
+                top: 10%;
+                opacity: 0;
+            }
+            30% {
+                top: 45%;
+                opacity: 0.6;
+            }
+            35% {
+                top: 46%;
+                opacity: 1;
+            }
+            40% {
+                top: 44%;
+                opacity: 0.3;
+            }
+            60% {
+                top: 75%;
+                opacity: 0;
+            }
+            80% {
+                top: 20%;
+                opacity: 0.7;
+            }
+            85% {
+                top: 21%;
+                opacity: 0.2;
+            }
+        }
+
+        /* Main screen */
+        .terminal-screen {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            background: #0d0d0d;
+            padding: 25px 30px;
+            z-index: 5;
+            overflow-y: auto;
+            overflow-x: hidden;
+            border-radius: 18px;
+            color: var(--text);
+            text-shadow: 0 0 6px rgba(51, 255, 51, 0.6), 0 0 18px rgba(51, 255, 51, 0.25);
+            animation: screen-flicker 10s infinite;
+            scroll-behavior: smooth;
+        }
+
+        @keyframes screen-flicker {
+            0%,
+            99.5%,
+            100% {
+                opacity: 1;
+            }
+            99.6% {
+                opacity: 0.92;
+            }
+            99.7% {
+                opacity: 0.96;
+            }
+            99.8% {
+                opacity: 0.88;
+            }
+        }
+
+        /* Custom scrollbar */
+        .terminal-screen::-webkit-scrollbar {
+            width: 6px;
+        }
+        .terminal-screen::-webkit-scrollbar-track {
+            background: #0a0a0a;
+            border-radius: 3px;
+        }
+        .terminal-screen::-webkit-scrollbar-thumb {
+            background: #1a4a1a;
+            border-radius: 3px;
+            border: 1px solid #0d2a0d;
+        }
+
+        /* Output area */
+        .output {
+            white-space: pre-wrap;
+            word-break: break-all;
+            line-height: 1.55;
+            font-size: 14px;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .output .line {
+            animation: line-appear 0.15s ease-out;
+        }
+
+        @keyframes line-appear {
+            from {
+                opacity: 0;
+                transform: translateY(-4px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .output .dim {
+            color: #1a7a1a;
+            text-shadow: 0 0 3px rgba(26, 122, 26, 0.4);
+        }
+        .output .bright {
+            color: #55ff55;
+            text-shadow: 0 0 10px rgba(85, 255, 85, 0.7), 0 0 25px rgba(85, 255, 85, 0.3);
+        }
+        .output .warn {
+            color: #ffaa33;
+            text-shadow: 0 0 8px rgba(255, 170, 51, 0.6);
+        }
+        .output .error {
+            color: #ff4444;
+            text-shadow: 0 0 8px rgba(255, 68, 68, 0.6);
+        }
+        .output .cyan {
+            color: #33cccc;
+            text-shadow: 0 0 8px rgba(51, 204, 204, 0.5);
+        }
+        .output .magenta {
+            color: #cc33cc;
+            text-shadow: 0 0 8px rgba(204, 51, 204, 0.5);
+        }
+        .output .yellow {
+            color: #cccc33;
+            text-shadow: 0 0 8px rgba(204, 204, 51, 0.5);
+        }
+
+        /* Input line */
+        .input-line {
+            display: flex;
+            align-items: center;
+            line-height: 1.55;
+            font-size: 14px;
+            letter-spacing: 0.5px;
+        }
+        .prompt {
+            color: #33ff33;
+            text-shadow: 0 0 8px rgba(51, 255, 51, 0.7);
+            white-space: nowrap;
+            font-weight: bold;
+            margin-right: 6px;
+        }
+        /* Make the container relative so absolute input fits inside */
+        .input-container {
+        position: relative;
+        flex: 1;
+        display: flex;
+        align-items: center;
+        height: 1.6em;          /* give it a fixed height for the input to fill */
+        }
+
+        /* Hide the real input but keep it clickable */
+        #cmd-input {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        opacity: 0;             /* completely invisible */
+        font-family: inherit;
+        font-size: inherit;
+        border: none;
+        outline: none;
+        padding: 0;
+        margin: 0;
+        color: transparent;      /* fallback */
+        background: transparent;
+        caret-color: transparent; /* optional, since opacity hides it anyway */
+        }
+        #cmd-input::selection {
+            background: rgba(51, 255, 51, 0.3);
+            color: #000;
+        }
+
+        /* Blinking block cursor */
+        .cursor-block {
+            display: inline-block;
+            width: 9px;
+            height: 17px;
+            background: #33ff33;
+            box-shadow: 0 0 8px #33ff33, 0 0 20px rgba(51, 255, 51, 0.7);
+            animation: cursor-blink 1s step-end infinite;
+            vertical-align: text-bottom;
+            margin-left: 1px;
+            border-radius: 1px;
+            flex-shrink: 0;
+        }
+        @keyframes cursor-blink {
+            0%,
+            100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0;
+            }
+        }
+
+        /* Glitch overlay (rare) */
+        .glitch-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 12;
+            background: transparent;
+            border-radius: 18px;
+            animation: glitch-flash 8s infinite;
+        }
+        @keyframes glitch-flash {
+            0%,
+            99.2%,
+            100% {
+                background: transparent;
+            }
+            99.3% {
+                background: rgba(51, 255, 51, 0.03);
+            }
+            99.4% {
+                background: rgba(51, 255, 51, 0.06);
+            }
+            99.5% {
+                background: transparent;
+            }
+            99.7% {
+                background: rgba(0, 0, 0, 0.4);
+            }
+        }
+
+        /* Power indicator */
+        .power-led {
+            position: absolute;
+            bottom: 12px;
+            right: 20px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #33ff33;
+            box-shadow: 0 0 10px #33ff33, 0 0 25px rgba(51, 255, 51, 0.8);
+            z-index: 15;
+            animation: led-pulse 2s ease-in-out infinite;
+        }
+        @keyframes led-pulse {
+            0%,
+            100% {
+                box-shadow: 0 0 10px #33ff33, 0 0 25px rgba(51, 255, 51, 0.8);
+            }
+            50% {
+                box-shadow: 0 0 6px #33ff33, 0 0 15px rgba(51, 255, 51, 0.5);
+            }
+        }
+
+        /* Brand label */
+        .brand-label {
+            position: absolute;
+            bottom: 10px;
+            left: 20px;
+            z-index: 15;
+            color: #1a5a1a;
+            font-family: 'Courier New', monospace;
+            font-size: 10px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            text-shadow: 0 0 4px rgba(26, 90, 26, 0.5);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .crt-container {
+                border-radius: 8px;
+                max-height: 100vh;
+                border: 2px solid #1a1a1a;
+            }
+            .terminal-screen {
+                padding: 15px 16px;
+                border-radius: 8px;
+                font-size: 12px;
+            }
+            .crt-curvature,
+            .scanlines,
+            .glitch-overlay {
+                border-radius: 8px;
+            }
+            .output,
+            .input-line,
+            #cmd-input {
+                font-size: 12px;
+            }
+            .cursor-block {
+                width: 7px;
+                height: 14px;
+            }
+            .brand-label {
+                font-size: 8px;
+                bottom: 6px;
+                left: 12px;
+            }
+            .power-led {
+                bottom: 8px;
+                right: 12px;
+                width: 6px;
+                height: 6px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="crt-container">
+        <div class="crt-curvature"></div>
+        <div class="scanlines"></div>
+        <div class="flicker-line"></div>
+        <div class="glitch-overlay"></div>
+        <div class="terminal-screen" id="terminal-screen">
+            <div class="output" id="output"></div>
+            <div class="input-line" id="input-line">
+                <span class="prompt" id="prompt">guest@terminal:~$</span>
+                <span class="input-container">
+                    <span id="cmd-display"></span>
+                    <span class="cursor-block" id="cursor"></span>
+                    <input type="text" id="cmd-input" autofocus autocomplete="off" spellcheck="false">
+                </span>
+                <input type="text" id="cmd-input" autofocus autocomplete="off" spellcheck="false">
+            </div>
+        </div>
+        <div class="power-led"></div>
+        <div class="brand-label">TERMINAL v1.0 // SECURE LINE // By NT</div>
+    </div>
+
+    <script>
+        (function() {
+            const outputEl = document.getElementById('output');
+            const cmdInput = document.getElementById('cmd-input');
+            const cmdDisplay = document.getElementById('cmd-display');
+            const cursorEl = document.getElementById('cursor');
+            const terminalScreen = document.getElementById('terminal-screen');
+            const promptEl = document.getElementById('prompt');
+            const inputLineEl = document.getElementById('input-line');
+
+            let commandHistory = [];
+            let historyIndex = -1;
+            let currentUser = 'guest';
+            let currentHost = 'terminal';
+            let bootComplete = false;
+
+            // ──────────────────────────────────────
+            // SOUND EFFECT (subtle keystroke click using Web Audio)
+            // ──────────────────────────────────────
+            let audioCtx = null;
+
+            function initAudio() {
+                if (!audioCtx) {
+                    audioCtx = new(window.AudioContext || window.webkitAudioContext)();
+                }
+            }
+
+            function playClick() {
+                if (!audioCtx) return;
+                try {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.04);
+                    gain.gain.setValueAtTime(0.02, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.04);
+                    osc.start(audioCtx.currentTime);
+                    osc.stop(audioCtx.currentTime + 0.04);
+                } catch (e) {
+                    // silently fail
+                }
+            }
+
+            function playEnter() {
+                if (!audioCtx) return;
+                try {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.08);
+                    gain.gain.setValueAtTime(0.03, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.08);
+                    osc.start(audioCtx.currentTime);
+                    osc.stop(audioCtx.currentTime + 0.08);
+                } catch (e) {
+                    // silently fail
+                }
+            }
+
+            // ──────────────────────────────────────
+            // UTILITY FUNCTIONS
+            // ──────────────────────────────────────
+            function scrollToBottom() {
+                terminalScreen.scrollTop = terminalScreen.scrollHeight;
+            }
+
+            function appendOutput(html, delay = 0) {
+                if (delay > 0) {
+                    setTimeout(() => {
+                        outputEl.innerHTML += html;
+                        scrollToBottom();
+                    }, delay);
+                } else {
+                    outputEl.innerHTML += html;
+                    scrollToBottom();
+                }
+            }
+
+            function appendLine(text, className = '', delay = 0) {
+                const cls = className ? ` class="${className}"` : '';
+                appendOutput(`<span class="line"${cls}>${text}</span>\n`, delay);
+            }
+
+            function appendRaw(text) {
+                outputEl.innerHTML += text;
+                scrollToBottom();
+            }
+
+            function getTimestamp() {
+                const now = new Date();
+                const h = now.getHours().toString().padStart(2, '0');
+                const m = now.getMinutes().toString().padStart(2, '0');
+                const s = now.getSeconds().toString().padStart(2, '0');
+                return `${h}:${m}:${s}`;
+            }
+
+            // ──────────────────────────────────────
+            // TYPING ANIMATION
+            // ──────────────────────────────────────
+            function typeText(fullText, speed = 2, onComplete = null) {
+                let i = 0;
+                // Remove cursor temporarily? No, we keep it but it'll jump around.
+                // Instead we append character by character to a temp span.
+                const tempSpan = document.createElement('span');
+                tempSpan.className = 'line';
+                outputEl.appendChild(tempSpan);
+                scrollToBottom();
+
+                function type() {
+                    if (i < fullText.length) {
+                        tempSpan.textContent += fullText.charAt(i);
+                        i++;
+                        scrollToBottom();
+                        const nextSpeed = speed + Math.random() * 15;
+                        setTimeout(type, nextSpeed);
+                    } else {
+                        tempSpan.textContent = fullText;
+                        // Add newline
+                        tempSpan.innerHTML += '\n';
+                        scrollToBottom();
+                        if (onComplete) onComplete();
+                    }
+                }
+                type();
+            }
+
+            function typeLines(linesArray, speed = 2, onComplete = null, startDelay = 0) {
+                let lineIndex = 0;
+
+                function typeNextLine() {
+                    if (lineIndex < linesArray.length) {
+                        const line = linesArray[lineIndex];
+                        const tempSpan = document.createElement('span');
+                        tempSpan.className = 'line';
+                        if (line.className) tempSpan.className += ' ' + line.className;
+                        outputEl.appendChild(tempSpan);
+                        scrollToBottom();
+
+                        let charIndex = 0;
+                        const text = line.text;
+
+                        function typeChar() {
+                            if (charIndex < text.length) {
+                                tempSpan.textContent += text.charAt(charIndex);
+                                charIndex++;
+                                scrollToBottom();
+                                const nextSpeed = speed + Math.random() * 12;
+                                setTimeout(typeChar, nextSpeed);
+                            } else {
+                                tempSpan.innerHTML += '\n';
+                                scrollToBottom();
+                                lineIndex++;
+                                setTimeout(typeNextLine, speed * 3);
+                            }
+                        }
+                        typeChar();
+                    } else {
+                        if (onComplete) onComplete();
+                    }
+                }
+                setTimeout(typeNextLine, startDelay);
+            }
+
+            // ──────────────────────────────────────
+            // BOOT SEQUENCE
+            // ──────────────────────────────────────
+            function bootSequence() {
+                const bootLines = [
+                    { text: '', className: '' },
+                    { text: '╔══════════════════════════════════════════════════════════╗',
+                    className: 'dim' },
+                    { text: '║            TERMINAL OS v1.0 — BOOT SEQUENCE              ║', className: 'bright' },
+                    { text: '╚══════════════════════════════════════════════════════════╝',
+                    className: 'dim' },
+                    { text: '', className: '' },
+                    { text: `[${getTimestamp()}] BIOS: Power-on self-test...`, className: 'dim' },
+                    { text: `[${getTimestamp()}] BIOS: Memory check... 65536 KB OK`, className: 'dim' },
+                    { text: `[${getTimestamp()}] BIOS: CPU init... OK`, className: 'dim' },
+                    { text: `[${getTimestamp()}] KERNEL: Loading kernel modules...`, className: 'dim' },
+                    { text: `[${getTimestamp()}] KERNEL: Mounting filesystems...`, className: 'dim' },
+                    { text: `[${getTimestamp()}] KERNEL: Network stack initialized.`, className: 'dim' },
+                    { text: `[${getTimestamp()}] INIT: Starting system services...`, className: 'dim' },
+                    { text: `[${getTimestamp()}] INIT: sshd... [OK]`, className: 'dim' },
+                    { text: `[${getTimestamp()}] INIT: cron... [OK]`, className: 'dim' },
+                    { text: `[${getTimestamp()}] INIT: firewall... [OK]`, className: 'dim' },
+                    { text: `[${getTimestamp()}] INIT: terminal service... [OK]`, className: 'dim' },
+                    { text: '', className: '' },
+                    { text: '>>> SYSTEM READY <<<', className: 'bright' },
+                    { text: '', className: '' },
+                    { text: 'Type "help" for available commands.', className: 'dim' },
+                    { text: '', className: '' },
+                ];
+
+                typeLines(bootLines, 1.5, () => {
+                    bootComplete = true;
+                    focusInput();
+                    updatePrompt();
+                    scrollToBottom();
+                }, 300);
+            }
+
+            // ──────────────────────────────────────
+            // UPDATE PROMPT
+            // ──────────────────────────────────────
+            function updatePrompt() {
+                promptEl.textContent = `${currentUser}@${currentHost}:~$`;
+            }
+
+            // ──────────────────────────────────────
+            // FOCUS INPUT
+            // ──────────────────────────────────────
+            function focusInput() {
+                cmdInput.focus();
+            }
+
+            // ──────────────────────────────────────
+            // COMMAND HANDLING
+            // ──────────────────────────────────────
+            function handleCommand(cmd) {
+                const trimmed = cmd.trim();
+                if (!trimmed) return;
+
+                // Add to history
+                commandHistory.push(trimmed);
+                historyIndex = commandHistory.length;
+
+                // Echo the command
+                appendLine(`${currentUser}@${currentHost}:~$ ${trimmed}`, 'bright');
+
+                // Parse and execute
+                const args = trimmed.split(/\s+/);
+                const command = args[0].toLowerCase();
+
+                switch (command) {
+                    case 'help':
+                        showHelp();
+                        break;
+                    case 'about':
+                        showAbout();
+                        break;
+                    case 'whoami':
+                        showWhoami();
+                        break;
+                    case 'date':
+                        showDate();
+                        break;
+                    case 'clear':
+                    case 'cls':
+                        clearScreen();
+                        break;
+                    case 'neofetch':
+                        showNeofetch();
+                        break;
+                    case 'ls':
+                        showLs(args);
+                        break;
+                    case 'cat':
+                        showCat(args);
+                        break;
+                    case 'pwd':
+                        showPwd();
+                        break;
+                    case 'echo':
+                        showEcho(args);
+                        break;
+                    case 'matrix':
+                        showMatrix();
+                        break;
+                    case 'hack':
+                        showHack();
+                        break;
+                    case 'sudo':
+                        showSudo(args);
+                        break;
+                    case 'ping':
+                        showPing(args);
+                        break;
+                    case 'ssh':
+                        showSsh(args);
+                        break;
+                    case 'reboot':
+                        showReboot();
+                        break;
+                    case 'exit':
+                        showExit();
+                        break;
+                    case 'banner':
+                        showBanner();
+                        break;
+                    case 'contact':
+                        showContact();
+                        break;
+                    case 'skills':
+                        showSkills();
+                        break;
+                    case 'projects':
+                        showProjects();
+                        break;
+                    default:
+                        appendLine(`bash: ${command}: command not found. Type "help" for available commands.`,
+                            'error');
+                }
+                scrollToBottom();
+            }
+
+            // ──────────────────────────────────────
+            // COMMAND IMPLEMENTATIONS
+            // ──────────────────────────────────────
+            function showHelp() {
+                const helpText = [
+                    '',
+                    '╔══════════════════════════════════════════╗',
+                    '║        AVAILABLE COMMANDS                ║',
+                    '╚══════════════════════════════════════════╝',
+                    '',
+                    '  help       — Show this help message',
+                    '  about      — About this terminal',
+                    '  whoami     — Display current user',
+                    '  date       — Show current date & time',
+                    '  clear/cls  — Clear the screen',
+                    '  neofetch   — System information (ASCII art)',
+                    '  ls         — List directory contents',
+                    '  cat        — Read a file',
+                    '  pwd        — Print working directory',
+                    '  echo       — Echo a message',
+                    '  matrix     — Enter the Matrix...',
+                    '  hack       — Simulate a hack sequence',
+                    '  sudo       — Try to gain root access',
+                    '  ping       — Ping a host',
+                    '  ssh        — SSH into a server',
+                    '  banner     — Display a cool banner',
+                    '  contact    — Contact information',
+                    '  skills     — List skills',
+                    '  projects   — View projects',
+                    '  reboot     — Reboot the system',
+                    '  exit       — Close session',
+                    '',
+                ];
+                helpText.forEach(line => appendLine(line, 'dim'));
+            }
+
+            function showAbout() {
+                appendLine('', '');
+                appendLine('╔══════════════════════════════════════════╗', 'cyan');
+                appendLine('║     TERMINAL OS v1.0 — "Green Phantom"  ║', 'bright');
+                appendLine('╚══════════════════════════════════════════╝', 'cyan');
+                appendLine('', '');
+                appendLine('  A vintage-style hacker terminal emulator.', 'dim');
+                appendLine('  Built with pure HTML, CSS & JavaScript.', 'dim');
+                appendLine('  Inspired by CRT monitors & cyberpunk aesthetics.', 'dim');
+                appendLine('  Feel the phosphor glow. Embrace the retro.', 'dim');
+                appendLine('', '');
+                appendLine('  [ STATUS: ONLINE ]  [ UPTIME: ' + getUptime() + ' ]', 'bright');
+                appendLine('', '');
+            }
+
+            function showWhoami() {
+                appendLine(`You are logged in as: ${currentUser}`, 'bright');
+                appendLine(`Host: ${currentHost}`, 'dim');
+                appendLine(`Terminal: tty1`, 'dim');
+                appendLine(`Session ID: ${Math.random().toString(36).substring(2, 10).toUpperCase()}`, 'dim');
+            }
+
+            function showDate() {
+                const now = new Date();
+                appendLine(now.toString(), 'bright');
+                appendLine(`Unix timestamp: ${Math.floor(now.getTime() / 1000)}`, 'dim');
+            }
+
+            function clearScreen() {
+                outputEl.innerHTML = '';
+                scrollToBottom();
+            }
+
+            function showNeofetch() {
+                const neofetchArt = [
+                    '',
+                    '        ......            ',
+                    '      ..      ..          ',
+                    '     .          .         ',
+                    '    .   ██████   .        ',
+                    '    .   ██████   .        ',
+                    '    .   ██████   .        ',
+                    '     .          .         ',
+                    '      ..      ..          ',
+                    '        ......            ',
+                    '',
+                ];
+                neofetchArt.forEach(line => appendLine(line, 'cyan'));
+                appendLine(`     OS: Terminal OS v1.0`, 'bright');
+                appendLine(`     Host: ${currentHost}`, 'dim');
+                appendLine(`     Kernel: 5.15.0-hacker-rc7`, 'dim');
+                appendLine(`     Shell: bash 5.1`, 'dim');
+                appendLine(`     Uptime: ${getUptime()}`, 'dim');
+                appendLine(`     User: ${currentUser}`, 'dim');
+                appendLine(`     Terminal: tty1`, 'dim');
+                appendLine(`     CPU: Virtual CPU @ 3.2GHz`, 'dim');
+                appendLine(`     Memory: 65536 KB`, 'dim');
+                appendLine('');
+            }
+
+            function showLs(args) {
+                const target = args[1] || '.';
+                if (target === '.' || target === '~') {
+                    appendLine('Documents  Downloads  Projects  secrets  notes.txt  README.md', 'cyan');
+                    appendLine('src/       config/    tmp/      .ssh/    .vimrc     .bashrc', 'dim');
+                } else if (target === '-la' || target === '-al') {
+                    appendLine('drwxr-xr-x  guest users  4096  Documents/', 'cyan');
+                    appendLine('drwxr-xr-x  guest users  4096  Downloads/', 'cyan');
+                    appendLine('drwxr-xr-x  guest users  4096  Projects/', 'cyan');
+                    appendLine('-rw-r--r--  guest users   128  notes.txt', 'dim');
+                    appendLine('-rw-r--r--  guest users  2048  README.md', 'dim');
+                    appendLine('drwx------  guest users  4096  .ssh/', 'warn');
+                    appendLine('-rw-------  guest users  1024  id_rsa', 'error');
+                } else {
+                    appendLine(`ls: cannot access '${target}': No such file or directory`, 'error');
+                }
+            }
+
+            function showCat(args) {
+                if (!args[1]) {
+                    appendLine('cat: missing operand. Usage: cat <filename>', 'error');
+                    return;
+                }
+                const file = args[1];
+                const fileContents = {
+                    'notes.txt': 'TODO: Finish the firewall bypass module.\nTODO: Update encryption keys.\nTODO: Delete logs from last penetration test.',
+                    'readme.md': '# Terminal OS\n\nWelcome to the hacker terminal.\nThis is a vintage-style emulator.\n\n## Features\n- CRT scanlines\n- Phosphor glow\n- Blinking cursor\n- Hacker aesthetic',
+                    '.bashrc': 'export PS1="\\[\\e[32m\\]\\u@\\h:\\w$\\[\\e[0m\\] "\nalias ll="ls -la"\nalias hack="echo Initiating... ; sleep 2 ; echo Done."\nalias matrix="echo Wake up, Neo..."',
+                };
+                if (fileContents[file]) {
+                    appendLine('', '');
+                    appendLine(fileContents[file], 'dim');
+                    appendLine('', '');
+                } else {
+                    appendLine(`cat: ${file}: Permission denied`, 'error');
+                }
+            }
+
+            function showPwd() {
+                appendLine('/home/guest', 'bright');
+            }
+
+            function showEcho(args) {
+                const msg = args.slice(1).join(' ');
+                if (!msg) {
+                    appendLine('', '');
+                } else {
+                    appendLine(msg, 'bright');
+                }
+            }
+
+            function showMatrix() {
+                appendLine('', '');
+                appendLine('Wake up, Neo...', 'bright');
+                appendLine('The Matrix has you...', 'bright');
+                appendLine('Follow the white rabbit.', 'dim');
+                appendLine('', '');
+                // Simulate falling characters
+                const chars = '01アイウエオカキクケコサシスセソタチツテト';
+                let matrixOutput = '';
+                for (let i = 0; i < 8; i++) {
+                    let line = '';
+                    for (let j = 0; j < 50; j++) {
+                        line += chars.charAt(Math.floor(Math.random() * chars.length));
+                    }
+                    matrixOutput += line + '\n';
+                }
+                appendLine(matrixOutput, 'bright');
+                appendLine('', '');
+                appendLine('[ Connection terminated. ]', 'dim');
+            }
+
+            function showHack() {
+                appendLine('', '');
+                appendLine('[ INITIATING HACK SEQUENCE... ]', 'warn');
+                appendLine('', '');
+                const stages = [
+                    'Bypassing firewall...',
+                    'Spoofing MAC address...',
+                    'Injecting payload...',
+                    'Escalating privileges...',
+                    'Accessing mainframe...',
+                    'Downloading sensitive data...',
+                    'Covering tracks...',
+                ];
+                stages.forEach((stage, i) => {
+                    setTimeout(() => {
+                        appendLine(`  [${i + 1}/${stages.length}] ${stage}`, 'bright');
+                        if (i === stages.length - 1) {
+                            setTimeout(() => {
+                                appendLine('', '');
+                                appendLine('[ HACK COMPLETE. 0 traces left behind. ]', 'bright');
+                                appendLine('[ Just kidding. This is a simulation. ]', 'dim');
+                                appendLine('', '');
+                                scrollToBottom();
+                            }, 300);
+                        }
+                        scrollToBottom();
+                    }, i * 350);
+                });
+            }
+
+            function showSudo(args) {
+                if (!args[1]) {
+                    appendLine('sudo: missing operand', 'error');
+                    return;
+                }
+                appendLine('[sudo] password for guest:', 'warn');
+                setTimeout(() => {
+                    appendLine('Sorry, try again.', 'error');
+                    appendLine('sudo: 1 incorrect password attempt', 'dim');
+                    appendLine('This incident will be reported.', 'warn');
+                    scrollToBottom();
+                }, 800);
+            }
+
+            function showPing(args) {
+                const target = args[1] || 'localhost';
+                appendLine(`PING ${target} (127.0.0.1): 56 data bytes`, 'dim');
+                let count = 0;
+                const pingInterval = setInterval(() => {
+                    const time = (Math.random() * 30 + 8).toFixed(2);
+                    appendLine(`64 bytes from 127.0.0.1: icmp_seq=${count} ttl=64 time=${time} ms`,
+                        'dim');
+                    count++;
+                    scrollToBottom();
+                    if (count >= 4) {
+                        clearInterval(pingInterval);
+                        appendLine('', '');
+                        appendLine(`--- ${target} ping statistics ---`, 'dim');
+                        appendLine(`4 packets transmitted, 4 received, 0% packet loss`, 'bright');
+                        appendLine(`round-trip min/avg/max = 8.12/14.50/32.01 ms`, 'dim');
+                        appendLine('', '');
+                        scrollToBottom();
+                    }
+                }, 400);
+            }
+
+            function showSsh(args) {
+                const target = args[1] || 'unknown';
+                appendLine(`ssh: connecting to ${target}...`, 'dim');
+                setTimeout(() => {
+                    appendLine(`The authenticity of host '${target}' can't be established.`, 'warn');
+                    appendLine(`ECDSA key fingerprint is SHA256:${Math.random().toString(36).substring(2, 30)}.`,
+                        'warn');
+                    appendLine(`Are you sure you want to continue connecting? (yes/no)`, 'dim');
+                    appendLine(`Host key verification failed.`, 'error');
+                    appendLine(`ssh: connection closed.`, 'dim');
+                    scrollToBottom();
+                }, 600);
+            }
+
+            function showReboot() {
+                appendLine('', '');
+                appendLine('[ SYSTEM REBOOTING... ]', 'warn');
+                appendLine('', '');
+                appendLine('Broadcasting reboot signal...', 'dim');
+                setTimeout(() => {
+                    appendLine('Stopping services...', 'dim');
+                }, 400);
+                setTimeout(() => {
+                    appendLine('Sending SIGTERM to all processes...', 'dim');
+                }, 800);
+                setTimeout(() => {
+                    appendLine('System halted.', 'bright');
+                    appendLine('', '');
+                    appendLine('[ It\'s just a simulation. Refresh to restart. ]', 'dim');
+                    scrollToBottom();
+                    // Disable input temporarily
+                    cmdInput.disabled = true;
+                    cursorEl.style.opacity = '0';
+                    setTimeout(() => {
+                        cmdInput.disabled = false;
+                        cursorEl.style.opacity = '1';
+                        clearScreen();
+                        bootSequence();
+                    }, 2500);
+                }, 1200);
+            }
+
+            function showExit() {
+                appendLine('logout', 'dim');
+                appendLine('Connection closed.', 'dim');
+                cmdInput.disabled = true;
+                cursorEl.style.opacity = '0';
+                setTimeout(() => {
+                    cmdInput.disabled = false;
+                    cursorEl.style.opacity = '1';
+                    clearScreen();
+                    bootSequence();
+                }, 2000);
+            }
+
+            function showBanner() {
+                const banner = [
+                    '',
+                    '  ████████╗███████╗██████╗ ███╗   ███╗██╗███╗   ██╗ █████╗ ██╗     ',
+                    '  ╚══██╔══╝██╔════╝██╔══██╗████╗ ████║██║████╗  ██║██╔══██╗██║     ',
+                    '     ██║   █████╗  ██████╔╝██╔████╔██║██║██╔██╗ ██║███████║██║     ',
+                    '     ██║   ██╔══╝  ██╔══██╗██║╚██╔╝██║██║██║╚██╗██║██╔══██║██║     ',
+                    '     ██║   ███████╗██║  ██║██║ ╚═╝ ██║██║██║ ╚████║██║  ██║███████╗',
+                    '     ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝╚══════╝',
+                    '',
+                    '               >>>  GREEN PHANTOM EDITION  <<<',
+                    '',
+                ];
+                banner.forEach(line => appendLine(line, 'bright'));
+            }
+
+            function showContact() {
+                appendLine('', '');
+                appendLine('╔══════════════════════════════════════════╗', 'cyan');
+                appendLine('║           CONTACT INFORMATION            ║', 'cyan');
+                appendLine('╚══════════════════════════════════════════╝', 'cyan');
+                appendLine('', '');
+                appendLine('  📧 Email:   NTcompany.NT@gmail.com', 'dim');
+                appendLine('  🐙 GitHub:  github.com/NTcompanyYT', 'dim');
+                appendLine('  💬 Telegram: @NT_Co', 'dim');
+                appendLine('  🌐 Web:     https://??? not today', 'dim');
+                appendLine('', '');
+                appendLine('  [ PGP Key available on request ]', 'warn');
+                appendLine('', '');
+            }
+
+            function showSkills() {
+                appendLine('', '');
+                appendLine('╔══════════════════════════════════════════╗', 'cyan');
+                appendLine('║              SKILL SET                   ║', 'cyan');
+                appendLine('╚══════════════════════════════════════════╝', 'cyan');
+                appendLine('', '');
+                appendLine('  Languages:', 'bright');
+                appendLine('    Python  ████████████████████  95%', 'dim');
+                appendLine('    Go      ██                    10%', 'dim');
+                appendLine('    C/C++   ████                  20%', 'dim');
+                appendLine('    Bash    █████████████████     80%', 'dim');
+                appendLine('', '');
+                appendLine('  Tools:', 'bright');
+                appendLine('    Docker, Git, VS Code, GH', 'dim');
+                appendLine('    Wireshark, nmap, Metasploit, Burp Suite', 'warn');
+                appendLine('', '');
+            }
+
+            function showProjects() {
+                appendLine('', '');
+                appendLine('╔══════════════════════════════════════════╗', 'cyan');
+                appendLine('║              PROJECTS                    ║', 'cyan');
+                appendLine('╚══════════════════════════════════════════╝', 'cyan');
+                appendLine('', '');
+                appendLine('  [1] PhantomFirewall  — Custom firewall tool', 'bright');
+                appendLine('  [2] PacketSniffer    — Network analysis suite', 'bright');
+                appendLine('  [3] CryptKeeper      — File encryption utility', 'bright');
+                appendLine('  [4] TermUI           — This terminal emulator', 'bright');
+                appendLine('  [5] DarkScan         — Port scanner (stealth)', 'warn');
+                appendLine('', '');
+                appendLine('  All projects available on GitHub.', 'dim');
+                appendLine('', '');
+            }
+
+            function getUptime() {
+                const uptimeSeconds = Math.floor((Date.now() - window._bootTime) / 1000);
+                const h = Math.floor(uptimeSeconds / 3600);
+                const m = Math.floor((uptimeSeconds % 3600) / 60);
+                const s = uptimeSeconds % 60;
+                return `${h}h ${m}m ${s}s`;
+            }
+
+            // ──────────────────────────────────────
+            // EVENT LISTENERS
+            // ──────────────────────────────────────
+            cmdInput.addEventListener('input', function() {
+                cmdDisplay.textContent = this.value;
+                scrollToBottom();
+                playClick();
+            });
+
+            cmdInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const cmd = this.value;
+                    this.value = '';
+                    cmdDisplay.textContent = '';
+                    playEnter();
+                    if (bootComplete) {
+                        handleCommand(cmd);
+                    } else {
+                        appendLine(`guest@terminal:~$ ${cmd}`, 'bright');
+                        appendLine('System still booting... Please wait.', 'warn');
+                    }
+                    scrollToBottom();
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    if (historyIndex > 0) {
+                        historyIndex--;
+                        this.value = commandHistory[historyIndex];
+                        cmdDisplay.textContent = this.value;
+                    }
+                } else if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    if (historyIndex < commandHistory.length - 1) {
+                        historyIndex++;
+                        this.value = commandHistory[historyIndex];
+                        cmdDisplay.textContent = this.value;
+                    } else {
+                        historyIndex = commandHistory.length;
+                        this.value = '';
+                        cmdDisplay.textContent = '';
+                    }
+                } else if (e.key === 'Tab') {
+                    e.preventDefault();
+                    const val = this.value.trim();
+                    const allCommands = [
+                        'help', 'about', 'whoami', 'date', 'clear', 'cls', 'neofetch',
+                        'ls', 'cat', 'pwd', 'echo', 'matrix', 'hack', 'sudo', 'ping',
+                        'ssh', 'reboot', 'exit', 'banner', 'contact', 'skills', 'projects'
+                    ];
+                    const matches = allCommands.filter(c => c.startsWith(val));
+                    if (matches.length === 1) {
+                        this.value = matches[0];
+                        cmdDisplay.textContent = this.value;
+                    } else if (matches.length > 1) {
+                        appendLine('', '');
+                        appendLine(matches.join('  '), 'dim');
+                        appendLine('', '');
+                        scrollToBottom();
+                    }
+                }
+            });
+
+            // Click anywhere on terminal to focus input
+            terminalScreen.addEventListener('click', function(e) {
+                if (bootComplete || outputEl.innerHTML.includes('SYSTEM READY')) {
+                    focusInput();
+                }
+            });
+
+            // Initialize audio on first interaction
+            document.addEventListener('click', initAudio, { once: true });
+            document.addEventListener('keydown', initAudio, { once: true });
+
+            // ──────────────────────────────────────
+            // INIT
+            // ──────────────────────────────────────
+            window._bootTime = Date.now();
+            bootSequence();
+
+        })();
+    </script>
+</body>
+</html>
+// https://github.com/NTcompanyYT/playground/terminal
