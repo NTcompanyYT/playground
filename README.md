@@ -12,7 +12,9 @@ This monorepo collects my quick AI-powered builds, each in its own folder with a
 ## 🗂️ What's inside
 
 <!-- PROJECTS_TABLE -->
-| No projects added yet. | Add a folder with a README.md! |
+| Project | Description |
+|--------|-------------|
+| [Terminal](./terminal/) | interactive terminal simulator |
 
 <!-- /PROJECTS_TABLE -->
 
